@@ -1,0 +1,21 @@
+{
+  "name": "wechat-publisher",
+  "version": "0.1.0",
+  "description": "公众号 AI 写作工作流 — 写作·配图·封面·检测·发布一条龙",
+  "author": {
+    "name": "ziyecodex"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "WeChat Publisher",
+    "shortDescription": "从想法到公众号草稿箱，一条命令搞定",
+    "longDescription": "一个面向 Codex 的本地公众号写作插件。支持教程/日报/测评三种模板，自动生成配图+封面，过 AI 检测，推送到微信公众号草稿箱。全流程自动化，不离开聊天界面。",
+    "developerName": "ziyecodex",
+    "category": "Writing",
+    "capabilities": ["Write"],
+    "brandColor": "#07C160",
+    "logo": "./assets/logo.png",
+    "logoDark": "./assets/logo-dark.png",
+    "defaultPrompt": "Write a WeChat Official Account article with WeChat Publisher."
+  }
+}
