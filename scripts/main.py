@@ -184,6 +184,18 @@ def cmd_detect(args):
     return score
 
 
+def _find_md2wechat():
+    """查找 md2wechat 可执行文件路径"""
+    candidates = [
+        r"C:\Users\ziye1\AppData\Roaming\npm\md2wechat.cmd",
+        r"C:\Users\ziye1\AppData\Roaming\npm\md2wechat",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return "md2wechat"  # fallback, might fail
+
+
 def cmd_push(args):
     """推送到公众号草稿箱"""
     input_path = Path(args.input)
@@ -194,8 +206,10 @@ def cmd_push(args):
     cover_path = args.cover or ""
     title = args.title or input_path.stem
 
+    md2wechat = _find_md2wechat()
+
     cmd = [
-        "md2wechat", "sync-md",
+        md2wechat, "sync-md",
         str(input_path),
         "--title", title,
         "--author", args.author or "ziyecodex",
@@ -206,15 +220,16 @@ def cmd_push(args):
         cmd += ["--update", args.update]
 
     print(f"  📤 推送中...")
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    print(result.stdout)
+    result = subprocess.run(cmd, capture_output=True, timeout=120, shell=True)
+    output = result.stdout.decode('utf-8', errors='replace')
+    print(output)
 
-    if "Draft created" in result.stdout or "Draft updated" in result.stdout:
-        for line in result.stdout.split("\n"):
+    if "Draft created" in output or "Draft updated" in output:
+        for line in output.split("\n"):
             if "Media ID" in line:
                 print(f"✅ {line.strip()}")
     else:
-        print(f"⚠️ 推送结果:\n{result.stdout}")
+        print(f"⚠️ 推送结果:\n{output}")
 
 
 def cmd_set_key(args):
@@ -274,65 +289,51 @@ def cmd_install(args):
 
 
 def _generate_image(prompt, output_path, aspect="3:4"):
-    """调用生图 API 生成图片"""
-    import urllib.request, ssl
+    """调用 fhl-image-gen 插件生成图片"""
+    import subprocess
 
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    aspect_map = {"3:4": "3:4", "2:1": "2:1", "1:1": "1:1", "16:9": "16:9"}
+    ar = aspect_map.get(aspect, "3:4")
 
-    # 从环境变量读取 Key
-    key = os.environ.get("IMAGE_API_KEY", "")
-    if not key:
-        env_path = ROOT / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().split("\n"):
-                if line.startswith("IMAGE_API_KEY="):
-                    key = line.split("=", 1)[1].strip()
-                    break
+    plugin_script = os.path.expanduser(
+        r"~\AppData\Local\Programs\OpenHarness\plugins\fhl-image-gen\scripts\generate.mjs"
+    )
+    # Try alternate locations
+    alt_paths = [
+        r"C:\Users\ziye1\.openharness\plugins\fhl-image-gen\scripts\generate.mjs",
+        os.path.expanduser(r"~\.openharness\plugins\fhl-image-gen\scripts\generate.mjs"),
+    ]
+    for p in alt_paths:
+        if os.path.exists(p):
+            plugin_script = p
+            break
 
-    if not key:
-        # 尝试读 fhl-image-gen 配置
-        config_path = Path.home() / ".openharness" / "plugins" / "fhl-image-gen" / ".codex-plugin" / "config.json"
-        if config_path.exists():
-            try:
-                config = json.loads(config_path.read_text())
-                key = config.get("key", "")
-            except:
-                pass
-
-    if not key:
-        print("⚠️ 未配置 API Key，跳过生图")
+    if not os.path.exists(plugin_script):
+        print("⚠️ fhl-image-gen 插件未安装，请先安装")
         return
 
-    ep = "https://grsai.dakka.com.cn/v1/draw/completions"
-    data = json.dumps({
-        "model": "gpt-image-2",
-        "prompt": prompt,
-        "aspect_ratio": aspect.replace(":", ":"),
-        "n": 1
-    }).encode()
+    fhl_out = Path.home() / "Pictures" / "fhl-image-gen"
+    cmd = [
+        "node", plugin_script,
+        "--prompt", prompt,
+        "--aspect", ar,
+    ]
 
-    req = urllib.request.Request(ep, data=data, headers={
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
-    })
-
-    for attempt in range(3):
-        try:
-            resp = urllib.request.urlopen(req, context=ctx, timeout=180)
-            result = json.loads(resp.read())
-            if result.get("data"):
-                img_url = result["data"][0]["url"]
-                img_data = urllib.request.urlopen(img_url, context=ctx, timeout=60).read()
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                with open(output_path, "wb") as f:
-                    f.write(img_data)
-                return
-        except Exception as e:
-            if attempt == 2:
-                print(f"  ⚠️ 生图失败: {e}")
-            time.sleep(2)
+    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    if result.returncode == 0:
+        # fhl-image-gen saves to default output dir, find latest file
+        latest = max(fhl_out.glob("*.png"), key=lambda p: p.stat().st_mtime, default=None)
+        if latest:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            import shutil
+            shutil.copy2(str(latest), output_path)
+            print(f"  ✅ 图片已保存: {output_path}")
+            print(f"\n![封面]({output_path})")
+        else:
+            print("  ⚠️ 未找到生成的图片")
+    else:
+        err = result.stderr.decode('utf-8', errors='replace')[:200]
+        print(f"  ⚠️ 生图失败: {err}")
 
 
 def main():
